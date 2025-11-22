@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <title>Дейкстра: шлях 3→9 </title>
+  <style>
+    body { font: 14px Arial; margin: 10px; background: #f5f5f5 }
+    h3 { margin-top: 10px }
+    .panel { margin: 8px 0 }
+    button { padding: 6px 12px; margin-right: 6px; cursor: pointer }
+    .log { padding: 8px; background: #e8f4fc; border-radius: 4px; margin: 6px 0; font-size: 13px }
+    #canvas { border: 1px solid #ccc; background: #fff; display: block }
+    .vertex { fill: white; stroke: #333; stroke-width: 2 }
+    .vertex-current { fill: gold; stroke: #000; stroke-width: 3 }
+    .vertex-done { fill: #4CAF50; stroke: #000 }
+    .edge { stroke: #777; stroke-width: 2 }
+    .tree-edge { stroke: #2196F3; stroke-width: 2.5; stroke-dasharray: 4,2 }
+    .path-edge { stroke: #F44336; stroke-width: 3.5 }
+    .label { font-size: 14px; font-weight: bold; text-anchor: middle; dominant-baseline: middle }
+    .weight-label { font-size: 12px; fill: #555; text-anchor: middle; dominant-baseline: middle }
+  </style>
+</head>
+<body>
+  <h3>Алгоритм Дейкстри (від 3 до 9)</h3>
+  <div class="panel">
+    <button id="run">Автозапуск</button>
+    <button id="step">Крок</button>
+    <button id="reset">Скинути</button>
+  </div>
+  <div class="log" id="log">Початок: вершина 3</div>
+  <svg id="canvas" width="800" height="500"></svg>
+
+  <script>
+    const xml = `<graph_data><graph><points>
+      <point id="1" x="150" y="300"/>
+      <point id="2" x="200" y="200"/>
+      <point id="3" x="300" y="100"/>
+      <point id="4" x="500" y="100"/>
+      <point id="5" x="450" y="200"/>
+      <point id="6" x="300" y="300"/>
+      <point id="7" x="500" y="300"/>
+      <point id="8" x="200" y="400"/>
+      <point id="9" x="350" y="400"/>
+    </points><lines>
+      <line from="1" to="2" weight="3"/>
+      <line from="2" to="3" weight="31"/>
+      <line from="3" to="4" weight="10"/>
+      <line from="4" to="5" weight="11"/>
+      <line from="5" to="7" weight="63"/>
+      <line from="7" to="9" weight="12"/>
+      <line from="9" to="8" weight="35"/>
+      <line from="8" to="1" weight="15"/>
+      <line from="1" to="6" weight="36"/>
+      <line from="6" to="2" weight="32"/>
+      <line from="6" to="5" weight="10"/>
+      <line from="6" to="7" weight="10"/>
+      <line from="6" to="8" weight="14"/>
+      <line from="6" to="9" weight="61"/>
+      <line from="3" to="5" weight="61"/>
+      <line from="4" to="7" weight="58"/>
+    </lines></graph></graph_data>`;
+
+    let V = {}, E = [], state, interval = null;
+    const svg = document.getElementById('canvas');
+    const log = document.getElementById('log');
+
+    // Парсинг XML
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    doc.querySelectorAll('point').forEach(p => {
+      V[p.getAttribute('id')] = { x: +p.getAttribute('x'), y: +p.getAttribute('y') };
+    });
+    doc.querySelectorAll('line').forEach(l => {
+      E.push({ a: l.getAttribute('from'), b: l.getAttribute('to'), w: +l.getAttribute('weight') });
+    });
+
+    function reset() {
+      clearInterval(interval);
+      state = {
+        dist: {}, prev: {}, done: new Set(), q: new Set(Object.keys(V)),
+        cur: '3', path: [], tree: []
+      };
+      state.dist['3'] = 0;
+      Object.keys(V).forEach(v => { if (v !== '3') state.dist[v] = Infinity; });
+      log.textContent = 'Початок: вершина 3';
+      render();
+    }
+
+    function render() {
+      svg.innerHTML = '';
+
+      // Ребра
+      E.forEach(e => {
+        const p1 = V[e.a], p2 = V[e.b];
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+        line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+        line.setAttribute('class', 'edge');
+        if (state.tree.some(t => (t.a === e.a && t.b === e.b) || (t.a === e.b && t.b === e.a)))
+          line.setAttribute('class', 'tree-edge');
+        if (state.path.includes(e.a + '-' + e.b) || state.path.includes(e.b + '-' + e.a))
+          line.setAttribute('class', 'path-edge');
+        svg.appendChild(line);
+
+        // Підпис ваги
+        const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+        const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        lbl.setAttribute('x', mx); lbl.setAttribute('y', my);
+        lbl.setAttribute('class', 'weight-label'); lbl.textContent = e.w;
+        svg.appendChild(lbl);
+      });
+
+      // Вершини
+      Object.keys(V).forEach(id => {
+        const v = V[id];
+        const circ = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circ.setAttribute('cx', v.x); circ.setAttribute('cy', v.y); circ.setAttribute('r', 20);
+        if (state.cur === id) circ.setAttribute('class', 'vertex-current');
+        else if (state.done.has(id)) circ.setAttribute('class', 'vertex-done');
+        else circ.setAttribute('class', 'vertex');
+        svg.appendChild(circ);
+
+        const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        lbl.setAttribute('x', v.x); lbl.setAttribute('y', v.y);
+        lbl.setAttribute('class', 'label'); lbl.textContent = id;
+        svg.appendChild(lbl);
+      });
+    }
+
+    function nextStep() {
+      if (!state.cur) return;
+      state.done.add(state.cur);
+      state.q.delete(state.cur);
+
+      E.filter(e => e.a === state.cur || e.b === state.cur).forEach(e => {
+        const nb = e.a === state.cur ? e.b : e.a;
+        if (!state.q.has(nb)) return;
+        const nd = state.dist[state.cur] + e.w;
+        if (nd < state.dist[nb]) {
+          state.dist[nb] = nd;
+          state.prev[nb] = state.cur;
+          state.tree = state.tree.filter(t => t.b !== nb);
+          state.tree.push({ a: state.cur, b: nb });
+        }
+      });
+
+      let minV = null, minD = Infinity;
+      state.q.forEach(v => {
+        if (state.dist[v] < minD) { minD = state.dist[v]; minV = v; }
+      });
+      state.cur = minV;
+
+      if (state.cur === '9' || !state.cur) {
+        let p = '9'; state.path = [];
+        while (p && state.prev[p]) {
+          state.path.push(p + '-' + state.prev[p]);
+          p = state.prev[p];
+        }
+        log.textContent = state.dist['9'] < Infinity ?
+          `Шлях: ${[...state.path].reverse().map(x => x.split('-').pop()).join(' → ')} → 9 | Вага: ${state.dist['9']}` :
+          'Шлях недоступний';
+        state.cur = null;
+      } else {
+        log.textContent = `Обробка: ${state.cur}, відстань = ${state.dist[state.cur]}`;
+      }
+      render();
+    }
+
+    document.getElementById('step').onclick = nextStep;
+    document.getElementById('run').onclick = () => {
+      clearInterval(interval);
+      interval = setInterval(() => {
+        if (!state.cur) clearInterval(interval);
+        else nextStep();
+      }, 800);
+    };
+    document.getElementById('reset').onclick = reset;
+
+    reset();
+  </script>
+</body>
+</html>
